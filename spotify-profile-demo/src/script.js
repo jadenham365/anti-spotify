@@ -8,23 +8,29 @@ if (!code) {
     const accessToken = await getAccessToken(clientId, code);
     const profile = await fetchProfile(accessToken);
 
-    const topArtists = await getUserTopItems(accessToken, 'artists', 'long_term', 10);
-    const topGenres = new Set();
+    const topArtists = await getUserTopItems(accessToken, 'artists', 'medium_term', 10);
+    let topGenres = new Set();
     topArtists.forEach(artist => {
         artist.genres.forEach(genre => topGenres.add(genre));
     });
-    const genreArray = Array.from(topGenres);
+    topGenres = Array.from(topGenres);
 
     console.log('Top Artists:', topArtists);
-    console.log('Top Genres:', genreArray);
+    console.log('Top Genres:', topGenres);
 
-    populateUI(profile, topArtists, genreArray);
-
-    const antiGenres = new Set();
-    for (let i = 0; i < genreArray.length; i++) {
-        await getAntiGenres(genreArray[i], antiGenres);
+    let antiGenres = new Set();
+    for (let i = 0; i < topGenres.length; i++) {
+        const result = await fetchAntiGenres(topGenres[i]);
+        try {
+            result.forEach(genre => antiGenres.add(genre));
+        } catch (error) {
+            console.error(error.message);
+        }
     }
-    console.log('Anti-Genres:', Array.from(antiGenres));
+    antiGenres = Array.from(antiGenres);
+    console.log('Anti-Genres:', antiGenres);
+
+    populateUI(profile, topArtists, topGenres, antiGenres);
 }
 
 
@@ -112,37 +118,20 @@ async function getUserTopItems(accessToken, type = 'artists', timeRange = 'mediu
     return data.items;
 }
 
-async function getAntiGenres(genre, antiSet) {
-    const url = `https://www.everynoise.com/engenremap-${genre.toLowerCase().replace(/ /g, '')}.html`;
-
+async function fetchAntiGenres(genre) {
     try {
-        // Fetch the genre page's HTML
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch data from ${url}`);
-        }
-
-        const html = await response.text();
-
-        // Parse the HTML content
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-
-        // Extract all divs with id "mirroritem#"
-        const antiGenreElements = doc.querySelectorAll('div[id^="mirroritem"]');
-        const antiGenres = Array.from(antiGenreElements).map(div => div.textContent.trim());
-
-        antiGenresforEach(g => antiSet.add(g));
-
-        return antiGenres;
+        const response = await fetch(`http://localhost:3000/mirror-genres?genre=${encodeURIComponent(genre)}`);
+        const data = await response.json();
+        console.log(`Anti-genres for ${genre}:`, data.antiGenres);
+        return data.antiGenres;
     } catch (error) {
-        console.error(`Error fetching anti-genres for ${genre}:`, error);
+        console.error('Error fetching anti-genres:', error);
         return [];
     }
 }
     
 
-function populateUI(profile, artists, genres) {
+function populateUI(profile, artists, genres, mirrors) {
     document.getElementById("displayName").innerText = profile.display_name;
     if (profile.images[0]) {
         const profileImage = new Image(200, 200);
@@ -162,10 +151,16 @@ function populateUI(profile, artists, genres) {
             document.getElementById("artists").append(", ");
         }
     }
-    for (let j = 0; j < genres.length; j++) {
-        document.getElementById("genres").append(genres[j]);
-        if (j < genres.length - 1) {
+    for (let i = 0; i < genres.length; i++) {
+        document.getElementById("genres").append(genres[i]);
+        if (i < genres.length - 1) {
             document.getElementById("genres").append(", ");
+        }
+    }
+    for (let i = 0; i < mirrors.length; i++) {
+        document.getElementById("mirrors").append(mirrors[i]);
+        if (i < mirrors.length - 1) {
+            document.getElementById("mirrors").append(", ");
         }
     }
 }
