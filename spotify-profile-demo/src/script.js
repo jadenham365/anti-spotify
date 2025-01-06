@@ -7,16 +7,24 @@ if (!code) {
 } else {
     const accessToken = await getAccessToken(clientId, code);
     const profile = await fetchProfile(accessToken);
-    populateUI(profile);
 
-    const topArtists = await getUserTopItems(accessToken, 'artists');
+    const topArtists = await getUserTopItems(accessToken, 'artists', 'long_term', 10);
     const topGenres = new Set();
     topArtists.forEach(artist => {
         artist.genres.forEach(genre => topGenres.add(genre));
     });
+    const genreArray = Array.from(topGenres);
 
     console.log('Top Artists:', topArtists);
-    console.log('Top Genres:', Array.from(topGenres));
+    console.log('Top Genres:', genreArray);
+
+    populateUI(profile, topArtists, genreArray);
+
+    const antiGenres = new Set();
+    for (let i = 0; i < genreArray.length; i++) {
+        await getAntiGenres(genreArray[i], antiGenres);
+    }
+    console.log('Anti-Genres:', Array.from(antiGenres));
 }
 
 
@@ -103,9 +111,38 @@ async function getUserTopItems(accessToken, type = 'artists', timeRange = 'mediu
     const data = await response.json();
     return data.items;
 }
+
+async function getAntiGenres(genre, antiSet) {
+    const url = `https://www.everynoise.com/engenremap-${genre.toLowerCase().replace(/ /g, '')}.html`;
+
+    try {
+        // Fetch the genre page's HTML
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch data from ${url}`);
+        }
+
+        const html = await response.text();
+
+        // Parse the HTML content
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // Extract all divs with id "mirroritem#"
+        const antiGenreElements = doc.querySelectorAll('div[id^="mirroritem"]');
+        const antiGenres = Array.from(antiGenreElements).map(div => div.textContent.trim());
+
+        antiGenresforEach(g => antiSet.add(g));
+
+        return antiGenres;
+    } catch (error) {
+        console.error(`Error fetching anti-genres for ${genre}:`, error);
+        return [];
+    }
+}
     
 
-function populateUI(profile) {
+function populateUI(profile, artists, genres) {
     document.getElementById("displayName").innerText = profile.display_name;
     if (profile.images[0]) {
         const profileImage = new Image(200, 200);
@@ -119,4 +156,16 @@ function populateUI(profile) {
     document.getElementById("uri").setAttribute("href", profile.external_urls.spotify);
     document.getElementById("url").innerText = profile.href;
     document.getElementById("url").setAttribute("href", profile.href);
+    for (let i = 0; i < artists.length; i++) {
+        document.getElementById("artists").append(artists[i].name);
+        if (i < artists.length - 1) {
+            document.getElementById("artists").append(", ");
+        }
+    }
+    for (let j = 0; j < genres.length; j++) {
+        document.getElementById("genres").append(genres[j]);
+        if (j < genres.length - 1) {
+            document.getElementById("genres").append(", ");
+        }
+    }
 }
