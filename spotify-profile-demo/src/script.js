@@ -28,9 +28,21 @@ if (!code) {
         }
     }
     antiGenres = Array.from(antiGenres);
+
+    const shuffled = antiGenres;
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const randomIndex = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[i]]; // Swap
+    }
+    antiGenres = shuffled.slice(0, 50);
+
     console.log('Anti-Genres:', antiGenres);
 
+    const trackResults = await fetchTracks(accessToken, antiGenres);
+    console.log('Track Results:', trackResults);
+
     populateUI(profile, topArtists, topGenres, antiGenres);
+    createAndDisplayPlaylist(accessToken, trackResults);
 }
 
 
@@ -44,7 +56,7 @@ export async function redirectToAuthCodeFlow(clientId) {
     params.append("client_id", clientId);
     params.append("response_type", "code");
     params.append("redirect_uri", "http://localhost:5173/callback");
-    params.append("scope", "user-read-private user-read-email user-top-read");
+    params.append("scope", "user-read-private user-read-email user-top-read playlist-modify-public playlist-modify-private");
     params.append("code_challenge_method", "S256");
     params.append("code_challenge", challenge);
     
@@ -129,7 +141,122 @@ async function fetchAntiGenres(genre) {
         return [];
     }
 }
-    
+
+async function fetchTracks(accessToken, genreList) {
+    const baseUrl = 'https://api.spotify.com/v1/search';
+    const results = [];
+
+    // Process each genre separately
+    for (const genre of genreList) {
+        const offset = Math.floor(Math.random() * 100);
+        const query = `q=genre:${encodeURIComponent(genre)}&type=track&market=US&limit=1&offset=${encodeURIComponent(offset)}`;
+        const url = `${baseUrl}?${query}`;
+
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                },
+            });
+
+            if (!response.ok) {
+                console.error(`Failed to fetch tracks for genre: ${genre} - ${response.statusText}`);
+                continue;
+            }
+            console.log(`processing ${genre}`);
+            const data = await response.json();
+            results.push(...(data.tracks?.items || [])); // Aggregate results
+        } catch (error) {
+            console.error(`Error fetching tracks for genre: ${genre} - ${error.message}`);
+        }
+    }
+
+    return results; // Return aggregated results
+}
+
+// Helper function to create a new playlist
+async function createPlaylist(userId, token) {
+    const playlistName = "Diversify";
+    const description = "A playlist of anti-recommendations based on your top artists";
+    const endpoint = `https://api.spotify.com/v1/users/${userId}/playlists`;
+
+    const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            name: playlistName,
+            description: description,
+            public: false // Make the playlist public
+        })
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+        console.log("Playlist created:", data);
+        return data; // Returns the new playlist object
+    } else {
+        console.error("Error creating playlist:", data);
+        throw new Error(data.error.message);
+    }
+}
+
+// Helper function to add tracks to a playlist
+async function addTracksToPlaylist(playlistId, trackUris, token) {
+    const endpoint = `https://api.spotify.com/v1/playlists/${playlistId}/tracks`;
+
+    const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            uris: trackUris // Array of track URIs
+        })
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+        console.log("Tracks added to playlist:", data);
+    } else {
+        console.error("Error adding tracks:", data);
+        throw new Error(data.error.message);
+    }
+}
+
+// Main function to create a playlist, add tracks, and display it
+async function createAndDisplayPlaylist(token, tracks) {
+    try {
+        // Assuming 'userId' is obtained elsewhere in your script
+        const userId = document.getElementById("id").textContent;
+
+        // Create a new playlist
+        const newPlaylist = await createPlaylist(userId, token);
+
+        // Add the first 50 tracks (or fewer if less than 50 available)
+        const trackUris = tracks.map(track => track.uri);
+        await addTracksToPlaylist(newPlaylist.id, trackUris, token);
+
+        // Display the playlist on the page
+        const profileSection = document.getElementById("profile");
+        const playlistLink = document.createElement("a");
+        playlistLink.href = newPlaylist.external_urls.spotify;
+        playlistLink.textContent = newPlaylist.name;
+        playlistLink.target = "_blank";
+
+        const playlistItem = document.createElement("li");
+        playlistItem.textContent = "New Playlist: ";
+        playlistItem.appendChild(playlistLink);
+
+        profileSection.appendChild(playlistItem);
+    } catch (error) {
+        console.error("Error creating and displaying playlist:", error);
+    }
+}
+
 
 function populateUI(profile, artists, genres, mirrors) {
     document.getElementById("displayName").innerText = profile.display_name;
